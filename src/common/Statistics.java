@@ -7,4 +7,14 @@ public class Statistics {
 	public long encodeLength;
 	public long encodeCount;
 	public long encodeTime;
+	
+	public void reset()
+	{
+		this.encryptLength = 0;
+		this.encryptCount = 0;
+		this.encryptTime = 0;
+		this.encodeLength = 0;
+		this.encodeCount = 0;
+		this.encodeTime = 0;
+	}
 }
