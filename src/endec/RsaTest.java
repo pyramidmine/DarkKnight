@@ -12,14 +12,22 @@ import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.Random;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 
+import common.Statistics;
+
 public class RsaTest {
+	
+	static final int LOOP_COUNT = 10000;
+	static final int MIN_SESSION_DATA_SIZE = 500;
+	static final int MAX_SESSION_DATA_SIZE = 116;
 
 	public static void main(String[] args) throws Exception {
 
@@ -34,13 +42,15 @@ public class RsaTest {
 		String plainText = "배달 문화를 선도하는 오투오시스";
 		System.out.println("Plain text: " + plainText);
 		
-		// 공개키로 암호화
-		String encrypted = encrypt(plainText, keyPair.getPublic());
-		System.out.println("Encrypted: " + encrypted);
-		
-		// 개인키로 복호화
-		String decrypted = decrypt(encrypted, keyPair.getPrivate());
-		System.out.println("Decrypted: " + decrypted);
+		{
+			// 공개키로 암호화
+			String encrypted = encrypt(plainText, keyPair.getPublic());
+			System.out.println("Encrypted: " + encrypted);
+
+			// 개인키로 복호화
+			String decrypted = decrypt(encrypted, keyPair.getPrivate());
+			System.out.println("Decrypted: " + decrypted);
+		}
 		
 		//
 		// 공개키를 Base64 인코딩 해서 전달 및 복원
@@ -120,6 +130,46 @@ public class RsaTest {
 		{
 			System.out.println("BadPaddingException: " + ex.getMessage());
 		}
+		
+		//
+		// 성능 테스트
+		// : 서버가 512바이트 세션 데이터를 공개키로 암호화 해서 전달
+		// : 클라이언트는 암호화 된 세션 데이터를 주기적으로 서버에 전달해야 세션이 유지됨
+		// : 세션 데이터 생성과 암호화/복호화 시간 측정
+		//
+		System.out.println("--- Encryption / Decryption performance ---");
+		Statistics stat = new Statistics();
+		for (int i = 0; i < LOOP_COUNT; i++)
+		{
+			String randomString = generateRandomString(MAX_SESSION_DATA_SIZE);
+			byte[] randomData = randomString.getBytes(StandardCharsets.UTF_8);
+			long timeBegin = System.nanoTime();
+			byte[] encrypted = encrypt(randomData, keyPair.getPublic());
+			long timeEncrypt = System.nanoTime();
+			byte[] decrypted = decrypt(encrypted, keyPair.getPrivate());
+			long timeDecrypt = System.nanoTime();
+			
+			if (!Arrays.equals(randomData, decrypted))
+			{
+				System.out.println("String source is not match with decrypted string!");
+				break;
+			}
+			
+			stat.encryptCount++;
+			stat.encryptLength = encrypted.length;
+			stat.encryptTime += (timeEncrypt - timeBegin);
+			stat.encodeCount++;
+			stat.encodeLength = decrypted.length;
+			stat.encodeTime += (timeDecrypt - timeEncrypt);
+		}
+		
+		System.out.printf("Encrypt{EC:%d, EL:%d, Ave.ET:%.6fms}, Decrypt{EC:%d, EL:%d, Ave.ET:%.6fms}%n",
+			stat.encryptCount,
+			stat.encryptLength,
+			stat.encryptTime / Math.max(1, stat.encryptCount) / 1000000.0,
+			stat.encodeCount,
+			stat.encodeLength,
+			stat.encodeTime / Math.max(1, stat.encodeCount) / 1000000.0);
 	}
 
 	static KeyPair genRSAKeyPair() throws NoSuchAlgorithmException {
@@ -143,19 +193,64 @@ public class RsaTest {
 		return encoded;
 	}
 	
+	static byte[] encrypt(byte[] plain, PublicKey publicKey) throws
+		BadPaddingException,
+		IllegalBlockSizeException,
+		InvalidKeyException,
+		NoSuchAlgorithmException,
+		NoSuchPaddingException
+	{
+		Cipher cipher = Cipher.getInstance("RSA");
+		cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+		byte[] encrypted = cipher.doFinal(plain);
+		return encrypted;
+	}
+	
 	static String decrypt(String encoded, PrivateKey privateKey) throws
 			BadPaddingException,
 			IllegalBlockSizeException,
 			InvalidKeyException,
 			NoSuchAlgorithmException,
 			NoSuchPaddingException,
-			UnsupportedEncodingException {
+			UnsupportedEncodingException
+	{
 		Cipher cipher = Cipher.getInstance("RSA");
 		byte[] decoded = Base64.getDecoder().decode(encoded.getBytes(StandardCharsets.UTF_8));
 		cipher.init(Cipher.DECRYPT_MODE, privateKey);
 		byte[] decrypted = cipher.doFinal(decoded);
 		String plainText = new String(decrypted, "UTF-8");
 		return plainText;
+	}
+	
+	static byte[] decrypt(byte[] encrypted, PrivateKey privateKey) throws
+		BadPaddingException,
+		IllegalBlockSizeException,
+		InvalidKeyException,
+		NoSuchAlgorithmException,
+		NoSuchPaddingException,
+		UnsupportedEncodingException
+	{
+		Cipher cipher = Cipher.getInstance("RSA");
+		cipher.init(Cipher.DECRYPT_MODE, privateKey);
+		byte[] decrypted = cipher.doFinal(encrypted);
+		return decrypted;
+	}
+	
+
+	static String generateRandomString(int length) {
+		final String randomSource = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+		
+		if (length < 1) {
+			throw new IllegalArgumentException("length < 1: " + length);
+		}
+		
+		Random rand = new Random();
+		StringBuilder sb = new StringBuilder(length);
+		for (int i = 0; i < length; i++) {
+			sb.append(randomSource.charAt(rand.nextInt(randomSource.length())));
+		}
+		
+		return sb.toString();
 	}
 
 }
